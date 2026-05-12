@@ -1,0 +1,16 @@
+{
+  "name": "Modern Furniture Pacific",
+  "short_name": "MFP",
+  "description": "Premium Furniture Marketplace in Kenya",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#92400e",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
