@@ -2,14 +2,31 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { cookies } from 'next/headers'
 
+// Cache for user data to reduce redundant database queries
+const userCache = new Map<string, { user: any; timestamp: number }>()
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
 async function getCurrentUser() {
   const cookieStore = await cookies()
   const userId = cookieStore.get('mfp_auth')?.value
   if (!userId) return null
+  
+  // Check cache first
+  const cached = userCache.get(userId)
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.user
+  }
+  
   const user = await db.user.findUnique({
     where: { id: userId },
     select: { id: true, email: true, name: true, phone: true, role: true, createdAt: true },
   })
+  
+  // Update cache
+  if (user) {
+    userCache.set(userId, { user, timestamp: Date.now() })
+  }
+  
   return user
 }
 
@@ -53,6 +70,9 @@ export async function PUT(request: NextRequest) {
       },
       select: { id: true, email: true, name: true, phone: true, role: true },
     })
+
+    // Invalidate cache on update
+    userCache.delete(user.id)
 
     return NextResponse.json({ user: updated })
   } catch (error) {

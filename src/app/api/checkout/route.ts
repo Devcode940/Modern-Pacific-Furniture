@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     const cookieStore = await cookies()
     const userId = cookieStore.get('mfp_auth')?.value || null
 
-    // Get cart items for this session
+    // Get cart items for this session with product data
     const cartItems = await db.cartItem.findMany({
       where: { sessionId },
       include: { product: true },
@@ -49,44 +49,45 @@ export async function POST(request: NextRequest) {
       0
     )
 
-    // Handle coupon discount
+    // Handle coupon discount - fetch coupon early to avoid redundant queries
     let discount = 0
     let couponCode: string | undefined = undefined
     let couponId: string | undefined = undefined
+    let couponData = null
 
     if (validated.couponCode) {
-      const coupon = await db.coupon.findUnique({
+      couponData = await db.coupon.findUnique({
         where: { code: validated.couponCode },
       })
 
-      if (coupon && coupon.active) {
+      if (couponData && couponData.active) {
         // Check expiry
-        if (coupon.expiresAt && coupon.expiresAt < new Date()) {
+        if (couponData.expiresAt && couponData.expiresAt < new Date()) {
           return NextResponse.json({ error: 'Coupon has expired' }, { status: 400 })
         }
         // Check usage limit
-        if (coupon.usesLimit && coupon.usesCount >= coupon.usesLimit) {
+        if (couponData.usesLimit && couponData.usesCount >= couponData.usesLimit) {
           return NextResponse.json({ error: 'Coupon usage limit reached' }, { status: 400 })
         }
         // Check minimum order
-        if (subtotal < coupon.minOrder) {
+        if (subtotal < couponData.minOrder) {
           return NextResponse.json(
-            { error: `Minimum order of KSh ${coupon.minOrder.toLocaleString('en-KE')} required for this coupon` },
+            { error: `Minimum order of KSh ${couponData.minOrder.toLocaleString('en-KE')} required for this coupon` },
             { status: 400 }
           )
         }
 
-        if (coupon.type === 'percentage') {
-          discount = Math.round((subtotal * coupon.value) / 100)
-          if (coupon.maxDiscount && discount > coupon.maxDiscount) {
-            discount = coupon.maxDiscount
+        if (couponData.type === 'percentage') {
+          discount = Math.round((subtotal * couponData.value) / 100)
+          if (couponData.maxDiscount && discount > couponData.maxDiscount) {
+            discount = couponData.maxDiscount
           }
         } else {
-          discount = coupon.value
+          discount = couponData.value
         }
 
-        couponCode = coupon.code
-        couponId = coupon.id
+        couponCode = couponData.code
+        couponId = couponData.id
       } else {
         return NextResponse.json({ error: 'Invalid coupon code' }, { status: 400 })
       }
@@ -131,17 +132,14 @@ export async function POST(request: NextRequest) {
       0
     )
     let finalDiscount = 0
-    if (couponCode) {
-      const coupon = await db.coupon.findUnique({ where: { code: couponCode } })
-      if (coupon) {
-        if (coupon.type === 'percentage') {
-          finalDiscount = Math.round((finalSubtotal * coupon.value) / 100)
-          if (coupon.maxDiscount && finalDiscount > coupon.maxDiscount) {
-            finalDiscount = coupon.maxDiscount
-          }
-        } else {
-          finalDiscount = Math.min(coupon.value, finalSubtotal)
+    if (couponCode && couponData) {
+      if (couponData.type === 'percentage') {
+        finalDiscount = Math.round((finalSubtotal * couponData.value) / 100)
+        if (couponData.maxDiscount && finalDiscount > couponData.maxDiscount) {
+          finalDiscount = couponData.maxDiscount
         }
+      } else {
+        finalDiscount = Math.min(couponData.value, finalSubtotal)
       }
     }
     const finalTotal = Math.max(0, finalSubtotal - finalDiscount)
@@ -149,7 +147,7 @@ export async function POST(request: NextRequest) {
 
     const orderNumber = generateOrderNumber()
 
-    // Use transaction for atomicity
+    // Use transaction for atomicity - batch operations for better performance
     const order = await db.$transaction(async (tx) => {
       // Create order with nested items
       const newOrder = await tx.order.create({
@@ -178,13 +176,15 @@ export async function POST(request: NextRequest) {
         include: { items: true },
       })
 
-      // Decrement stock for ordered items
-      for (const item of itemsToOrder) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stock: { decrement: item.quantity } },
-        })
-      }
+      // Batch update stock for all ordered items
+      await Promise.all(
+        itemsToOrder.map((item) =>
+          tx.product.update({
+            where: { id: item.productId },
+            data: { stock: { decrement: item.quantity } },
+          })
+        )
+      )
 
       // Increment coupon usesCount
       if (couponId) {

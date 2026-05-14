@@ -1,18 +1,12 @@
 ```
 # Dependencies
 node_modules/
-.bun/
-.zig/
 
 # Build outputs
+.next/
 dist/
 build/
-.next/
 out/
-
-# Database
-db/*.db
-db/*.db-journal
 
 # Environment variables
 .env
@@ -21,24 +15,39 @@ db/*.db-journal
 
 # Logs
 *.log
-logs/
-
-# Process IDs
-.zscripts/dev.pid
-
-# Downloaded data
-download/*.json
 
 # OS generated files
 .DS_Store
 Thumbs.db
 
-# IDE specific
+# Editor files
 .vscode/
 .idea/
-
-# Temporary files
-*.tmp
 *.swp
-*~
+*.swo
+*.tmp
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git/modules/
+.pytest_cache/
+.mypy_cache/
+.hypothesis/
 ```
