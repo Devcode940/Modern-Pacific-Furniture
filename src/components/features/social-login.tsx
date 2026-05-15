@@ -46,7 +46,22 @@ export function SocialLogin() {
   const [regConfirmPassword, setRegConfirmPassword] = useState('')
   const [regError, setRegError] = useState('')
 
-  const handleSocialLogin = (provider: string) => {
+  const handleSocialLogin = async (provider: string) => {
+    if (provider === 'Google') {
+      // Redirect to Google OAuth callback endpoint
+      window.location.href = '/api/auth/google/callback'
+      return
+    }
+    
+    if (provider === 'Apple') {
+      // Redirect to Apple OAuth - requires form POST
+      toast.info('Apple login coming soon!', {
+        description: 'Please use email sign in for now.',
+        duration: 3000,
+      })
+      return
+    }
+    
     toast.info(`${provider} login coming soon!`, {
       description: 'Sign in with email for now.',
       duration: 3000,

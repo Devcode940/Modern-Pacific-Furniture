@@ -3,6 +3,7 @@ import { db } from '@/lib/db'
 import { cookies } from 'next/headers'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
+import { loginSchema } from '@/lib/validators'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-in-production'
 const COOKIE_NAME = 'mfp_auth_token'
@@ -18,18 +19,23 @@ interface JWTPayload {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { action, email, password } = body
-
-    // Handle logout
-    if (action === 'logout') {
+    
+    // Validate input using Zod schema
+    const validationResult = loginSchema.safeParse(body)
+    if (!validationResult.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: validationResult.error.errors },
+        { status: 400 }
+      )
+    }
+    
+    const { email, password } = validationResult.data
+    
+    // Handle logout action
+    if (body.action === 'logout') {
       const cookieStore = await cookies()
       cookieStore.delete(COOKIE_NAME)
       return NextResponse.json({ success: true })
-    }
-
-    // Handle login
-    if (!email || !password) {
-      return NextResponse.json({ error: 'Email and password are required' }, { status: 400 })
     }
 
     // Rate limiting check (simple in-memory, use Redis in production)

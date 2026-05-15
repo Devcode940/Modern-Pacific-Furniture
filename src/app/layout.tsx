@@ -21,7 +21,8 @@ export const metadata: Metadata = {
   description: "Discover premium quality furniture for every room in your home. Sofas, beds, dining sets, and more — delivered across Kenya at affordable prices.",
   keywords: ["furniture Kenya", "sofa Kenya", "bed Nairobi", "dining table", "modern furniture", "office desk", "living room furniture", "mattress Kenya"],
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
   },
 };
 
