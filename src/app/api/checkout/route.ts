@@ -2,6 +2,27 @@ import { db } from '@/lib/db'
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { z } from 'zod'
+import jwt from 'jsonwebtoken'
+
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-change-in-production'
+
+interface JWTPayload {
+  userId: string
+  email: string
+  role: string
+}
+
+function verifyJWT(token: string): JWTPayload | null {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET, {
+      issuer: 'modern-furniture-pacific',
+      audience: 'modern-furniture-pacific-users',
+    }) as JWTPayload
+    return decoded
+  } catch {
+    return null
+  }
+}
 
 const checkoutSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -29,9 +50,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Session ID required' }, { status: 400 })
     }
 
-    // Check if user is logged in
+    // Check if user is logged in via JWT
     const cookieStore = await cookies()
-    const userId = cookieStore.get('mfp_auth')?.value || null
+    const token = cookieStore.get('mfp_auth_token')?.value
+    let userId: string | null = null
+    
+    if (token) {
+      const payload = verifyJWT(token)
+      if (payload) {
+        userId = payload.userId
+      }
+    }
 
     // Get cart items for this session with product data
     const cartItems = await db.cartItem.findMany({
@@ -147,8 +176,24 @@ export async function POST(request: NextRequest) {
 
     const orderNumber = generateOrderNumber()
 
-    // Use transaction for atomicity - batch operations for better performance
+    // Use transaction for atomicity with proper isolation level
     const order = await db.$transaction(async (tx) => {
+      // First, lock products to prevent race conditions
+      // Note: SQLite doesn't support row-level locking, but PostgreSQL does
+      // For production with PostgreSQL, use: await tx.$executeRaw`SELECT * FROM "Product" WHERE id IN (...) FOR UPDATE`
+      
+      // Verify stock again inside transaction to prevent race conditions
+      for (const item of itemsToOrder) {
+        const product = await tx.product.findUnique({
+          where: { id: item.productId },
+          select: { stock: true },
+        })
+        
+        if (!product || product.stock < item.quantity) {
+          throw new Error(`Stock unavailable for product: ${item.name}`)
+        }
+      }
+
       // Create order with nested items
       const newOrder = await tx.order.create({
         data: {
@@ -210,6 +255,9 @@ export async function POST(request: NextRequest) {
       await tx.cartItem.deleteMany({ where: { sessionId } })
 
       return newOrder
+    }, {
+      timeout: 10000, // 10 second timeout
+      isolationLevel: 'Serializable', // Highest isolation level
     })
 
     return NextResponse.json({
@@ -220,7 +268,18 @@ export async function POST(request: NextRequest) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: 'Validation failed', details: error.errors }, { status: 400 })
     }
+    
+    // Log error for monitoring
     console.error('Error processing checkout:', error)
+    
+    // Check if it's a stock-related error
+    if (error instanceof Error && error.message.includes('Stock unavailable')) {
+      return NextResponse.json({ 
+        error: 'Stock updated during checkout. Please review your cart and try again.',
+        retry: true,
+      }, { status: 409 })
+    }
+    
     return NextResponse.json({ error: 'Failed to process checkout' }, { status: 500 })
   }
 }
